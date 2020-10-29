@@ -1,5 +1,6 @@
 #include <stm32l4xx_hal.h>
 #include <string.h>
+#include <stdio.h>
 
 DMA_HandleTypeDef dma;
 UART_HandleTypeDef uart;
@@ -8,6 +9,13 @@ void led_gpio_init();
 void uart_gpio_init();
 void uart_dma_init();
 void uart_init();
+
+ssize_t _write(int fd, const void *buf, size_t count) {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+    HAL_UART_Transmit(&uart, (uint8_t*)buf, count, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+    return count;
+}
 
 void SysTick_Handler() {
     HAL_IncTick();
@@ -22,8 +30,8 @@ int main(void) {
     uart_dma_init();
     uart_init();
 
-    static char buffer[512] = "Welcome to the STM32L4 Discovery Kit!\n";
-    HAL_UART_Transmit(&uart, (uint8_t*)buffer, strnlen(buffer, sizeof(buffer)-1), HAL_MAX_DELAY);
+    printf("Welcome to the STM32L4 Discovery Kit!\n");
+    return 0;
 }
 
 void led_gpio_init() {
