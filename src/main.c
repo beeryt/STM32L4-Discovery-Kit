@@ -9,6 +9,11 @@ void uart_gpio_init();
 void uart_dma_init();
 void uart_init();
 
+void SysTick_Handler() {
+    HAL_IncTick();
+    HAL_SYSTICK_IRQHandler();
+}
+
 int main(void) {
     HAL_Init();
 
@@ -18,7 +23,7 @@ int main(void) {
     uart_init();
 
     static char buffer[512] = "Welcome to the STM32L4 Discovery Kit!\n";
-    HAL_UART_Transmit_DMA(&uart, (uint8_t*)buffer, strnlen(buffer, sizeof(buffer)-1));
+    HAL_UART_Transmit(&uart, (uint8_t*)buffer, strnlen(buffer, sizeof(buffer)-1), HAL_MAX_DELAY);
 }
 
 void led_gpio_init() {
