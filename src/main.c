@@ -3,6 +3,7 @@
 DMA_HandleTypeDef dma;
 UART_HandleTypeDef uart;
 
+void led_gpio_init();
 void uart_gpio_init();
 void uart_dma_init();
 void uart_init();
@@ -10,6 +11,7 @@ void uart_init();
 int main(void) {
     HAL_Init();
 
+    led_gpio_init();
     uart_gpio_init();
     uart_dma_init();
     uart_init();
@@ -17,17 +19,33 @@ int main(void) {
     HAL_UART_Transmit_DMA(&uart, (uint8_t*)"Hello World\n", 12);
 }
 
+void led_gpio_init() {
+    // LED configuration
+    // PA5  ----->  LED1
+    // PB14 ----->  LED2
+    GPIO_InitTypeDef gpio;
+    gpio.Speed = GPIO_SPEED_FREQ_LOW;
+    gpio.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio.Pull = GPIO_PULLDOWN;
+    gpio.Pin = GPIO_PIN_5;
+    __GPIOA_CLK_ENABLE();
+    HAL_GPIO_Init(GPIOA, &gpio);
+    gpio.Pin = GPIO_PIN_14;
+    __GPIOB_CLK_ENABLE();
+    HAL_GPIO_Init(GPIOB, &gpio);
+}
+
 void uart_gpio_init() {
     // USART1 GPIO configuration
     // PB6  ----->  USART1_TX
     // PB7  ----->  USART1_RX
-    __GPIOB_CLK_ENABLE();
     GPIO_InitTypeDef gpio;
     gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     gpio.Mode = GPIO_MODE_AF_PP;
     gpio.Pull = GPIO_PULLUP;
     gpio.Alternate = GPIO_AF7_USART1;
     gpio.Pin = GPIO_PIN_6 | GPIO_PIN_7;
+    __GPIOB_CLK_ENABLE();
     HAL_GPIO_Init(GPIOB, &gpio);
 }
 
@@ -74,4 +92,3 @@ void DMA1_Channel4_IRQHandler(void) {
 void USART1_IRQHandler(void) {
     HAL_UART_IRQHandler(&uart);
 }
-
