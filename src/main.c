@@ -1,4 +1,5 @@
 #include <stm32l4xx_hal.h>
+#include <string.h>
 
 DMA_HandleTypeDef dma;
 UART_HandleTypeDef uart;
@@ -16,7 +17,8 @@ int main(void) {
     uart_dma_init();
     uart_init();
 
-    HAL_UART_Transmit_DMA(&uart, (uint8_t*)"Hello World\n", 12);
+    static char buffer[512] = "Welcome to the STM32L4 Discovery Kit!\n";
+    HAL_UART_Transmit_DMA(&uart, (uint8_t*)buffer, strnlen(buffer, sizeof(buffer)-1));
 }
 
 void led_gpio_init() {
