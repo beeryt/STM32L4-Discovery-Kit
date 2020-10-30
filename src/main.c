@@ -46,17 +46,102 @@ void hts221_dump() {
     printf("  STATUS_REG: %02X\n", buffer[5]);
 }
 
+typedef struct {
+    uint8_t H0_rH_x2;
+    uint8_t H1_rh_x2;
+    uint16_t T0_degC_x8;
+    uint16_t T1_degC_x8;
+
+    int16_t H0_OUT;
+    int16_t H1_OUT;
+
+    int16_t T0_OUT;
+    int16_t T1_OUT;
+
+    float H_m;
+    float H_b;
+    float T_m;
+    float T_b;
+} HTS221_Calib;
+
+static HTS221_Calib hts221_calib_dat;
+
+void hts221_calibrate() {
+    HTS221_Calib calib;
+    uint8_t buffer[13];
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x30, 1, &buffer[0],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x31, 1, &buffer[1],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x32, 1, &buffer[2],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x33, 1, &buffer[3],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x35, 1, &buffer[4],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x36, 1, &buffer[5],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x37, 1, &buffer[6],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x3A, 1, &buffer[7],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x3B, 1, &buffer[8],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x3C, 1, &buffer[9],  1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x3D, 1, &buffer[10], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x3E, 1, &buffer[11], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x3F, 1, &buffer[12], 1, HAL_MAX_DELAY);
+    
+    calib.H0_rH_x2 = (uint8_t)buffer[0];
+    calib.H1_rh_x2 = (uint8_t)buffer[1];
+    calib.T0_degC_x8 = (uint16_t)buffer[2] | (uint16_t)((buffer[4]&0x3)<<8);
+    calib.T1_degC_x8 = (uint16_t)buffer[3] | (uint16_t)(((buffer[4]>>2)&0x3)<<8);
+    calib.H0_OUT = (int16_t)(buffer[5] | (buffer[6]<<8));
+    calib.H1_OUT = (int16_t)(buffer[7] | (buffer[8]<<8));
+    calib.T0_OUT = (int16_t)(buffer[9] | (buffer[10]<<8));
+    calib.T1_OUT = (int16_t)(buffer[11] | (buffer[12]<<8));
+
+    calib.H_m = (float)(calib.H1_rh_x2 - calib.H0_rH_x2) / (float)(calib.H1_OUT - calib.H0_OUT);
+    calib.H_b = (float)(calib.H0_rH_x2) - (float)(calib.H_m * calib.H0_OUT);
+
+    calib.T_m = (float)(calib.T1_degC_x8 - calib.T0_degC_x8) / (float)(calib.T1_OUT - calib.T0_OUT);
+    calib.T_b = (float)(calib.T0_degC_x8) - (float)(calib.T_m * calib.T0_OUT);
+
+    hts221_calib_dat = calib;
+    printf("calibration:\n");
+    printf("  H0_rH_x2:   %d\n", calib.H0_rH_x2);
+    printf("  H1_rh_x2:   %d\n", calib.H1_rh_x2);
+    printf("  T0_degC_x8: %d\n", calib.T0_degC_x8);
+    printf("  T1_degC_x8: %d\n", calib.T1_degC_x8);
+    printf("  H0_T0_OUT:  %d\n", calib.H0_OUT);
+    printf("  H1_T1_OUT:  %d\n", calib.H1_OUT);
+    printf("  T0_OUT:     %d\n", calib.T0_OUT);
+    printf("  T1_OUT:     %d\n", calib.T1_OUT);
+    printf("  T_m:        %f\n", calib.T_m);
+    printf("  T_b:        %f\n", calib.T_b);
+    printf("  T1_degC_x8: %f\n", calib.T1_OUT * calib.T_m + calib.T_b);
+}
+
+float convert_to_rh(int16_t H_IN) {
+    return ((float)H_IN * hts221_calib_dat.H_m + hts221_calib_dat.H_b) / 2.0;
+}
+
+float convert_to_c(int16_t T_IN) {
+    return ((float)T_IN * hts221_calib_dat.T_m + hts221_calib_dat.T_b) / 8.0;
+}
+
+float convert_to_f(int16_t T_IN) {
+    float C = convert_to_c(T_IN);
+    return (C * (9.0/5.0)) + 32.0;
+}
+
 void hts221_read() {
-        HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x27, 1, &buffer[5], 1, HAL_MAX_DELAY);
+    static bool calibrated = false;
+    if (!calibrated) {
+        calibrated = true;
+        hts221_calibrate();
+    }
+
         HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x28, 1, &buffer[6], 1, HAL_MAX_DELAY);
         HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x29, 1, &buffer[7], 1, HAL_MAX_DELAY);
         HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x2A, 1, &buffer[8], 1, HAL_MAX_DELAY);
         HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x2B, 1, &buffer[9], 1, HAL_MAX_DELAY);
-        printf("  HUMIDITY_OUT_L: %02X\n", buffer[6]);
-        printf("  HUMIDITY_OUT_H: %02X\n", buffer[7]);
-        printf("  TEMP_OUT_L:     %02X\n", buffer[8]);
-        printf("  TEMP_OUT_H:     %02X\n", buffer[9]);
-        printf("  STATUS_REG:     %02X\n", buffer[5]);
+    int16_t H_OUT = (int16_t)((buffer[7] << 8) | buffer[6]);
+    int16_t T_OUT = (int16_t)((buffer[9] << 8) | buffer[8]);
+    printf("  rH:   %f\n", convert_to_rh(H_OUT));
+    printf("  C:    %f\n", convert_to_c(T_OUT));
+    printf("  F:    %f\n", convert_to_f(T_OUT));
 }
 
 int main(void) {
@@ -103,7 +188,6 @@ int main(void) {
         hts221_read();
     }
 
-    check_exti15();
     printf("triggering one-shot!\n");
     buffer[3] |= 0x01; // trigger one-shot
     HAL_I2C_Mem_Write(&i2c2, HTS221_ADDR, 0x21, 1, &buffer[3], 1, HAL_MAX_DELAY);
