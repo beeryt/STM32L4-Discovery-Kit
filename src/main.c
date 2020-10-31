@@ -145,6 +145,7 @@ void hts221_read() {
 }
 
 int main(void) {
+    asm(".global _printf_float");
     HAL_Init();
 
     led_gpio_init();
