@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 #define HTS221_ADDR 0xBE
+#define LPS22HB_ADDR 0xBA
 
 DMA_HandleTypeDef dma;
 UART_HandleTypeDef uart;
@@ -29,6 +30,19 @@ void SysTick_Handler() {
 
 uint8_t buffer[12];
 volatile bool do_read = false;
+volatile bool do_lps22hb_read = false;
+
+void lps22hb_dump() {
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x0f, 1, &buffer[0], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x10, 1, &buffer[1], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x11, 1, &buffer[2], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x12, 1, &buffer[3], 1, HAL_MAX_DELAY);
+
+    printf("  WHO_AM_I:     %02X\n", buffer[0]);
+    printf("  CTRL_REG1:    %02X\n", buffer[1]);
+    printf("  CTRL_REG2:    %02X\n", buffer[2]);
+    printf("  CTRL_REG3:    %02X\n", buffer[3]);
+}
 
 void hts221_dump() {
     HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x0f, 1, &buffer[0], 1, HAL_MAX_DELAY);
@@ -44,6 +58,19 @@ void hts221_dump() {
     printf("  CTRL_REG2:  %02X\n", buffer[3]);
     printf("  CTRL_REG3:  %02X\n", buffer[4]);
     printf("  STATUS_REG: %02X\n", buffer[5]);
+}
+
+void lps22hb_read() {
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x2B, 1, &buffer[0], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x2C, 1, &buffer[1], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x28, 1, &buffer[2], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x29, 1, &buffer[3], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, LPS22HB_ADDR, 0x2A, 1, &buffer[4], 1, HAL_MAX_DELAY);
+
+    int16_t TEMP_OUT = (int16_t)(buffer[0] | (buffer[1]<<8));
+    int32_t PRES_OUT = (int32_t)(((buffer[2]<<8) | (buffer[3]<<16) | (buffer[4]<<24))>>8);
+    printf("  P:    %f\n", (float)PRES_OUT / 4096.0f);
+    printf("  C:    %f\n", (float)TEMP_OUT / 100.0f);
 }
 
 typedef struct {
@@ -133,15 +160,14 @@ void hts221_read() {
         hts221_calibrate();
     }
 
-        HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x28, 1, &buffer[6], 1, HAL_MAX_DELAY);
-        HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x29, 1, &buffer[7], 1, HAL_MAX_DELAY);
-        HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x2A, 1, &buffer[8], 1, HAL_MAX_DELAY);
-        HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x2B, 1, &buffer[9], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x28, 1, &buffer[6], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x29, 1, &buffer[7], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x2A, 1, &buffer[8], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Read(&i2c2, HTS221_ADDR, 0x2B, 1, &buffer[9], 1, HAL_MAX_DELAY);
     int16_t H_OUT = (int16_t)((buffer[7] << 8) | buffer[6]);
     int16_t T_OUT = (int16_t)((buffer[9] << 8) | buffer[8]);
     printf("  rH:   %f\n", convert_to_rh(H_OUT));
     printf("  C:    %f\n", convert_to_c(T_OUT));
-    printf("  F:    %f\n", convert_to_f(T_OUT));
 }
 
 int main(void) {
@@ -156,52 +182,62 @@ int main(void) {
 
     printf("Welcome to the STM32L4 Discovery Kit!\n");
 
-    // configure data ready pin
+    // configure data ready pins
     // PD15 ----->  HTS221_DRDY_EXTI15
+    // PD10 ----->  LPS22HB_INT_DRDY_EXTI10
     __GPIOD_CLK_ENABLE();
     GPIO_InitTypeDef drdy_pin;
-    drdy_pin.Pin = GPIO_PIN_15;
+    drdy_pin.Pin = GPIO_PIN_15 | GPIO_PIN_10;
     drdy_pin.Mode = GPIO_MODE_IT_FALLING;
     drdy_pin.Pull = GPIO_NOPULL;
     drdy_pin.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     HAL_GPIO_Init(GPIOD, &drdy_pin);
 
-    // configure EXTI15 for PD15
+    // configure external interrupt falling trigger
     __SYSCFG_CLK_ENABLE();
-    SYSCFG->EXTICR[3] |= SYSCFG_EXTICR4_EXTI15_PD;
-    EXTI->IMR1 |= EXTI_IMR1_IM15;
-    EXTI->FTSR1 |= EXTI_FTSR1_FT15;
+    SYSCFG->EXTICR[3] |= SYSCFG_EXTICR4_EXTI15_PD | SYSCFG_EXTICR3_EXTI10_PD;
+    EXTI->IMR1 |= EXTI_IMR1_IM15 | EXTI_IMR1_IM10;
+    EXTI->FTSR1 |= EXTI_FTSR1_FT15 | EXTI_FTSR1_FT10;
     HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
+    // power-on HTS221 and setup DRDY_EXTI15
     buffer[0] = 0x81; // power on, 1Hz
     buffer[1] = 0x84; // DRDY enabled, active low, push-pull
-
-    // power-on HTS221 and setup DRDY_EXTI15
     HAL_I2C_Mem_Write(&i2c2, HTS221_ADDR, 0x20, 1, &buffer[0], 1, HAL_MAX_DELAY);
     HAL_I2C_Mem_Write(&i2c2, HTS221_ADDR, 0x22, 1, &buffer[1], 1, HAL_MAX_DELAY);
 
-    printf("initial memory:\n");
-    hts221_dump();
+    // power-on LPS22HB and setup DRDY_EXTI10
+    buffer[0] = 0x84; // DRDY enabled, active low, push-pull
+    buffer[1] = 0x10; // ODR for 1Hz
+    buffer[2] = 0x11; // one-shot
+    HAL_I2C_Mem_Write(&i2c2, LPS22HB_ADDR, 0x12, 1, &buffer[0], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Write(&i2c2, LPS22HB_ADDR, 0x10, 1, &buffer[1], 1, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Write(&i2c2, LPS22HB_ADDR, 0x11, 1, &buffer[2], 1, HAL_MAX_DELAY);
 
-    if ((buffer[5] & 0x3)) {
-        printf("initial reading:\n");
-        hts221_read();
-    }
+    printf("initial LPS22HB memory:\n");
+    lps22hb_dump();
+    lps22hb_read();
+
+    printf("initial HTS221 memory:\n");
+    hts221_dump();
+    hts221_read();
 
     printf("triggering one-shot!\n");
     buffer[3] |= 0x01; // trigger one-shot
     HAL_I2C_Mem_Write(&i2c2, HTS221_ADDR, 0x21, 1, &buffer[3], 1, HAL_MAX_DELAY);
-    printf("mem dump:\n");
-    hts221_dump();
 
-    while (1)
-    {
-        if (do_read)
-        {
+    while (1) {
+        if (do_read) {
             do_read = false;
             printf("data ready:\n");
             hts221_read();
+        }
+
+        if (do_lps22hb_read) {
+            do_lps22hb_read = false;
+            printf("lps22hb data ready:\n");
+            lps22hb_read();
         }
     }
 
@@ -311,5 +347,9 @@ void EXTI15_10_IRQHandler(void) {
     if (__HAL_GPIO_EXTI_GET_FLAG(GPIO_PIN_15)) {
         do_read = true;
     }
+    if (__HAL_GPIO_EXTI_GET_FLAG(GPIO_PIN_10)) {
+        do_lps22hb_read = true;
+    }
     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_15);
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_10);
 }
