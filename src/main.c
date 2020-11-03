@@ -7,9 +7,11 @@
 
 #include <hts221.h>
 #include <lps22hb.h>
+#include <m24sr.h>
 
 #define HTS221_ADDR 0xBE
 #define LPS22HB_ADDR 0xBA
+#define M24SR_ADDR 0xAC
 
 volatile bool lps22hb_drdy = false;
 volatile bool hts221_drdy = false;
@@ -76,6 +78,37 @@ int main(void) {
     SENSOR_IO_Write(HTS221_ADDR, HTS221_CTRL_REG1, ctrl1);
     SENSOR_IO_Write(HTS221_ADDR, HTS221_CTRL_REG2, ctrl2);
     SENSOR_IO_Write(HTS221_ADDR, HTS221_CTRL_REG3, ctrl3);
+
+    uint8_t buffer[16384];
+    printf("\n\n");
+    M24SR_Init(M24SR_ADDR, M24SR_GPO_POLLING);
+    NFC_IO_RfDisable(GPIO_PIN_RESET);
+    #define printt(thing) { uint16_t ret = thing; if (ret != 0x9000) { printf(#thing ": %04X\n", ret); } }
+
+    // open i2c session
+    printt(M24SR_GetSession(M24SR_ADDR));
+    // select application
+    printt(M24SR_SelectApplication(M24SR_ADDR));
+    // select CC file
+    printt(M24SR_SelectCCfile(M24SR_ADDR));
+    // read CC file
+    printt(M24SR_ReadBinary(M24SR_ADDR, 0x0009, 2, buffer));
+    int16_t file_id = buffer[1] | (buffer[0]<<8);
+    printf("file_id: %04X\n", file_id);
+    // select NDEF file
+    printt(M24SR_SelectNDEFfile(M24SR_ADDR, file_id));
+    // read NDEF file
+    printt(M24SR_ReadBinary(M24SR_ADDR, 0x0000, 2, buffer));
+    uint16_t file_len = buffer[1] | (buffer[0]<<8);
+    printf("file_len: %04X\n", file_len);
+    printt(M24SR_ReadBinary(M24SR_ADDR, 0x0002, file_len, buffer));
+    printf("message: ");
+    for (int i = 0; i < file_len; ++i) {
+        printf("%02X", buffer[i]);
+    }
+    printf("\n");
+    // deselect
+    M24SR_Deselect(M24SR_ADDR);
 
     printf("Welcome to the STM32L4 Discovery Kit!\n");
 
