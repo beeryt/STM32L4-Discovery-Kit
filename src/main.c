@@ -24,9 +24,55 @@ void uart_gpio_init();
 void uart_dma_init();
 void uart_init();
 
+#include <fifo.h>
+volatile size_t in_transit = 0;
+#if 1
+volatile uint8_t buffer[256];
+volatile fifo_t fifo_g = {
+    .buffer = buffer,
+    .head = 0,
+    .tail = 0,
+    .capacity = 255
+};
+#else
+FIFO_DEF(fifo_g, 255);
+#endif
+
+void start_transfer() {
+    uint8_t* start = (uint8_t*)(fifo_g.buffer + fifo_g.tail);
+    size_t size = fifo_size(&fifo_g);
+    if (fifo_g.tail > fifo_g.head) size = fifo_g.capacity - fifo_g.tail + 1;
+    // wait for previous transfer to complete
+    while (dma.State != HAL_DMA_STATE_READY);
+    HAL_UART_Transmit_DMA(&uart, start, size);
+    in_transit = size;
+}
+
+void end_transfer() {
+    fifo_pop(&fifo_g, NULL, in_transit);
+    in_transit = 0;
+}
+
 ssize_t _write(int fd, const void *buf, size_t count) {
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-    HAL_UART_Transmit(&uart, (uint8_t*)buf, count, HAL_MAX_DELAY);
+    #if 1
+    // memcpy(fifo_g.buffer, buf, count);
+    for (int i = 0; i < count; ++i) {
+        asm("nop");
+    }
+    #else
+    // HAL_UART_Transmit(&uart, (uint8_t*)buf, count, HAL_MAX_DELAY);
+    size_t to_send = count;
+    while (to_send > 0) {
+        size_t sent = fifo_push(&fifo_g, buf, to_send);
+        to_send -= sent;
+
+        // debug when waiting on full buffer
+        GPIO_PinState status = (sent == 0) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, status);
+    }
+    start_transfer();
+    #endif
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
     return count;
 }
@@ -146,6 +192,11 @@ int main(void) {
             printf("  T:    %6.3f\n", T_OUT);
             lps22hb_drdy = false;
         }
+
+        if (in_transit == 0 && !fifo_empty(&fifo_g)) {
+            start_transfer();
+        }
+        printf("hello world\n");
     }
 
     return 0;
@@ -219,6 +270,7 @@ void uart_dma_init() {
 
 void DMA1_Channel4_IRQHandler(void) {
     HAL_DMA_IRQHandler(&dma);
+    end_transfer();
 }
 
 void USART1_IRQHandler(void) {
