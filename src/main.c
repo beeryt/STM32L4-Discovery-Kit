@@ -120,13 +120,13 @@ int main(void) {
     H_OUT = HTS221_H_ReadHumidity(HTS221_ADDR);
     T_OUT = HTS221_T_ReadTemp(HTS221_ADDR);
     printf("  H:    %f\n", H_OUT);
-    printf("  T:    %f\n", T_OUT);
+    printf("  T:    %6.3f\n", T_OUT);
 
     printf("initial LPS22HB read:\n");
     P_OUT = LPS22HB_P_ReadPressure(LPS22HB_ADDR);
     T_OUT = LPS22HB_T_ReadTemp(LPS22HB_ADDR);
-    printf("  P:    %f\n", P_OUT);
-    printf("  T:    %f\n", T_OUT);
+    printf("  P:    %5.2f\n", P_OUT * 0.02953);
+    printf("  T:    %6.3f\n", T_OUT);
 
     while (1) {
         if (hts221_drdy) {
@@ -134,7 +134,7 @@ int main(void) {
             H_OUT = HTS221_H_ReadHumidity(HTS221_ADDR);
             T_OUT = HTS221_T_ReadTemp(HTS221_ADDR);
             printf("  H:    %f\n", H_OUT);
-            printf("  T:    %f\n", T_OUT);
+            printf("  T:    %6.3f\n", T_OUT);
             hts221_drdy = false;
         }
 
@@ -142,8 +142,8 @@ int main(void) {
             printf("lps22hb data ready:\n");
             P_OUT = LPS22HB_P_ReadPressure(LPS22HB_ADDR);
             T_OUT = LPS22HB_T_ReadTemp(LPS22HB_ADDR);
-            printf("  P:    %f\n", P_OUT);
-            printf("  T:    %f\n", T_OUT);
+            printf("  P:    %5.2f\n", P_OUT * 0.02953);
+            printf("  T:    %6.3f\n", T_OUT);
             lps22hb_drdy = false;
         }
     }
